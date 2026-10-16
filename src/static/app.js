@@ -3,6 +3,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const signupContainer = document.getElementById("signup-container");
+  const teacherButton = document.getElementById("teacher-button");
+  const teacherDialog = document.getElementById("teacher-dialog");
+  const teacherLoginForm = document.getElementById("teacher-login-form");
+  const teacherLogoutButton = document.getElementById("teacher-logout");
+  const teacherDialogClose = document.getElementById("teacher-dialog-close");
+  const authMessage = document.getElementById("auth-message");
+  let currentTeacher = null;
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -12,6 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      activitySelect.replaceChildren(activitySelect.querySelector('option[value=""]'));
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -30,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${details.participants
                   .map(
                     (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                      `<li><span class="participant-email">${email}</span>${currentTeacher ? `<button class="delete-btn" data-activity="${name}" data-email="${email}" aria-label="Unregister ${email}">❌</button>` : ""}</li>`
                   )
                   .join("")}
               </ul>
@@ -64,6 +73,29 @@ document.addEventListener("DOMContentLoaded", () => {
       activitiesList.innerHTML =
         "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
+    }
+  }
+
+  async function refreshSession() {
+    try {
+      const response = await fetch("/auth/session");
+      const session = await response.json();
+      currentTeacher = session.authenticated ? session.username : null;
+      signupContainer.classList.toggle("hidden", !currentTeacher);
+      teacherLoginForm.classList.toggle("hidden", Boolean(currentTeacher));
+      teacherLogoutButton.classList.toggle("hidden", !currentTeacher);
+      teacherButton.setAttribute(
+        "aria-label",
+        currentTeacher ? "Teacher account" : "Teacher sign in"
+      );
+      teacherButton.title = currentTeacher ? "Teacher account" : "Teacher sign in";
+      authMessage.textContent = currentTeacher
+        ? `Signed in as ${currentTeacher}.`
+        : "Sign in to manage activity registrations.";
+      await fetchActivities();
+    } catch (error) {
+      authMessage.textContent = "Unable to check teacher sign-in status.";
+      console.error("Error checking teacher session:", error);
     }
   }
 
@@ -155,6 +187,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  teacherButton.addEventListener("click", () => teacherDialog.showModal());
+  teacherDialogClose.addEventListener("click", () => teacherDialog.close());
+
+  teacherLoginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(teacherLoginForm);
+
+    try {
+      const response = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: formData.get("username"),
+          password: formData.get("password"),
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        authMessage.textContent = result.detail || "Unable to sign in.";
+        return;
+      }
+
+      teacherLoginForm.reset();
+      teacherDialog.close();
+      await refreshSession();
+    } catch (error) {
+      authMessage.textContent = "Unable to sign in. Please try again.";
+      console.error("Error signing in:", error);
+    }
+  });
+
+  teacherLogoutButton.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST" });
+    await refreshSession();
+  });
+
   // Initialize app
-  fetchActivities();
+  refreshSession();
 });
